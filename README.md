@@ -11,13 +11,16 @@ Distilled from a completed ERPNext→Postgres migration; every technical claim i
 frappe-postgres-migration/
 ├── SKILL.md                          # entry point: the rule, the 5-phase process, decision rules
 ├── README.md                         # this file (install notes — not loaded by Claude)
-└── references/                       # loaded on demand by Claude when relevant
-    ├── 01-false-positives.md         # framework-handled forms — don't "fix" these
-    ├── 02-hard-breaks.md             # queries that ERROR on Postgres + portable fixes
-    ├── 03-silent-divergences.md      # queries that return DIFFERENT results + parity fixes
-    ├── 04-portable-cookbook.md       # copy-pasteable qb/ORM recipes
-    ├── 05-ci-harness.md              # dual-engine sites, CI workflow, install.sh, branch protection
-    └── 06-transaction-and-runtime.md # txn-abort/savepoints, set_value(bool), name-case, TZ epochs, run-it-for-real lessons
+├── references/                       # loaded on demand by Claude when relevant
+│   ├── 01-false-positives.md         # framework-handled forms — don't "fix" these
+│   ├── 02-hard-breaks.md             # queries that ERROR on Postgres + portable fixes
+│   ├── 03-silent-divergences.md      # queries that return DIFFERENT results + parity fixes
+│   ├── 04-portable-cookbook.md       # copy-pasteable qb/ORM recipes
+│   ├── 05-ci-harness.md              # dual-engine sites, CI workflow, install.sh, branch protection, pre-commit gate
+│   └── 06-transaction-and-runtime.md # txn-abort/savepoints, set_value(bool), name-case, TZ epochs, run-it-for-real lessons
+└── tools/                            # ready-to-use, app-agnostic
+    ├── postgres_compat.py            # pre-commit checker for the mechanical MySQL-only breaks
+    └── test_postgres_compat.py       # its unit tests (run: python -m unittest, no frappe needed)
 ```
 
 ## Install (the person receiving this)

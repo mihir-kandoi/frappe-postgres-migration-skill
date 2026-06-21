@@ -227,6 +227,40 @@ reading `run-parallel-tests` CI logs, and comprehensive staging↔develop reconc
 
 ---
 
+## Enforce the mechanical breaks with a pre-commit hook (the gate is label-gated)
+
+Because the Postgres job is label-gated (it doesn't run on every PR), add an **always-on
+pre-commit hook** as the first line of defence. A ready-made, app-agnostic, dependency-free
+checker ships with this skill at **`tools/postgres_compat.py`** (with `tools/test_postgres_compat.py`).
+
+It statically flags the *mechanical* breaks — MySQL-only functions (`timestamp(date,time)`,
+`timediff`, `str_to_date`, `date_format`/`date_add`/`date_sub`, `group_concat`, SQL `IF()`),
+`SHOW INDEX`/`TABLES`/`COLUMNS` and their result keys, single-quoted aliases, `UPDATE…JOIN`,
+f-string/format SQL carrying those MySQL-isms, and `set_value`/`db_set(<Check>, bool)`. It does
+**not** flag the framework auto-translations (see `01`) or the *semantic* divergences (loose
+`GROUP BY`, case-sensitivity, NULL order, tiebreakers) — the gated **test suite stays the
+backstop** for those. AST + SQL-structure-gated regex keep false positives near zero (docstrings
+and prose are skipped); `# pg-ok` exempts an intentional MariaDB-only branch.
+
+Wire it into `.pre-commit-config.yaml` (drop the helper into your repo, e.g. `.github/helper/`):
+
+```yaml
+  - repo: local
+    hooks:
+      - id: postgres-compat
+        name: "PostgreSQL compatibility (static check)"
+        entry: .github/helper/postgres_compat.py
+        language: script
+        files: ^<your_app>/.*\.py$
+        exclude: ^<your_app>/patches/   # historical, version-gated migrations
+```
+
+Validate against your already-clean tree: `pre-commit run postgres-compat --all-files` should
+report **Passed** (it found a real missed `set_value(..., True)` the first time it ran on the
+reference app — a good sign it earns its keep).
+
+---
+
 ## Summary checklist
 
 - [ ] Two local test sites: one `--db-type postgres`, one `--db-type mariadb`, both `allow_tests`.
@@ -238,4 +272,5 @@ reading `run-parallel-tests` CI logs, and comprehensive staging↔develop reconc
 - [ ] Every fix: reproduced-red on PG → fixed → green on PG → still-green on MariaDB.
 - [ ] Test-helper SQL swept, not just production code.
 - [ ] Catch-and-continue insert paths savepoint-guarded (see `06`).
+- [ ] `tools/postgres_compat.py` wired into pre-commit (always-on guard for the mechanical breaks).
 - [ ] PG context promoted to required only *after* the full suite is reliably green — last step.
