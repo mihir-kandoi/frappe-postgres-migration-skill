@@ -231,7 +231,7 @@ reading `run-parallel-tests` CI logs, and comprehensive staging↔develop reconc
 
 Because the Postgres job is label-gated (it doesn't run on every PR), add an **always-on
 pre-commit hook** as the first line of defence. A ready-made, app-agnostic, dependency-free
-checker ships with this skill at **`tools/postgres_compat.py`** (with `tools/test_postgres_compat.py`).
+checker ships with this skill at **`tools/postgres_compat.py`**.
 
 It statically flags the *mechanical* breaks — MySQL-only functions (`timestamp(date,time)`,
 `timediff`, `str_to_date`, `date_format`/`date_add`/`date_sub`, `group_concat`, SQL `IF()`),

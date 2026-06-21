@@ -19,8 +19,7 @@ frappe-postgres-migration/
 │   ├── 05-ci-harness.md              # dual-engine sites, CI workflow, install.sh, branch protection, pre-commit gate
 │   └── 06-transaction-and-runtime.md # txn-abort/savepoints, set_value(bool), name-case, TZ epochs, run-it-for-real lessons
 └── tools/                            # ready-to-use, app-agnostic
-    ├── postgres_compat.py            # pre-commit checker for the mechanical MySQL-only breaks
-    └── test_postgres_compat.py       # its unit tests (run: python -m unittest, no frappe needed)
+    └── postgres_compat.py            # pre-commit checker for the mechanical MySQL-only breaks
 ```
 
 ## Install (the person receiving this)
