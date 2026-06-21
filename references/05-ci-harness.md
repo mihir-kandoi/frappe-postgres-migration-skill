@@ -259,6 +259,37 @@ Validate against your already-clean tree: `pre-commit run postgres-compat --all-
 report **Passed** (it found a real missed `set_value(..., True)` the first time it ran on the
 reference app — a good sign it earns its keep).
 
+### Know its boundaries (so you don't over-trust it)
+
+It is a high-precision net for **textual MySQL-isms in SQL-shaped string literals + two AST
+call patterns** — not a correctness proof. Be explicit with your team about the line:
+
+**Covers**
+- In string literals that have real SQL *structure* (`SELECT…FROM`, `UPDATE…SET`, `DELETE FROM`,
+  `INSERT INTO`, `SHOW INDEX/TABLES/COLUMNS`, `FROM \`tab…\``) — incl. `.format()`/`%` templates
+  and the static text of f-strings: `timestamp(date,time)`, `timediff`, `str_to_date`,
+  `date_format`, `date_add/sub`, `group_concat`, `period_diff`, SQL `IF()`, `SHOW INDEX/TABLES/COLUMNS`,
+  single-quoted aliases, `UPDATE … JOIN`.
+- AST: `set_value`/`db_set(<Check>, True/False)` (literal bool); `SHOW INDEX` result keys
+  (`row["Column_name"]` / `row.get("Column_name")`).
+- Correctly *ignores* the framework auto-translations (`ifnull`, backtick, `locate`, `REGEXP`,
+  `.like()→ILIKE`) and docstrings/prose.
+
+**Does NOT cover (→ the gated test suite is the backstop)**
+- The whole **semantic-divergence** class (ref `03`): loose `GROUP BY`, case-sensitive `==`/`IN`,
+  name-lookup case, empty-string↔NULL, NULL ordering, `LIMIT 1` tiebreakers, `Max()` pick,
+  integer division, `UnixTimestamp(date)` TZ skew.
+- Hard breaks needing semantics: **capital-cased identifiers** (`get_value(dt, dn, "Status")`),
+  `HAVING`-on-alias, `SELECT DISTINCT … ORDER BY`-not-in-select, `varchar | varchar` boolean strictness.
+- **Transaction-abort / savepoint discipline** (ref `06` §1) — control-flow, not detectable here.
+- **Query-builder-expressed** MySQL-isms (`CustomFunction("timestamp", …)`, pypika) — only SQL
+  *strings* are scanned, not qb constructs.
+- Blind spots within its own checks: MySQL-isms inside an **interpolated value** (not the static
+  template), SQL assembled from **fragments/variables** where no single literal has SQL structure,
+  `timestamp(fn(x), y)` (nested paren), bool passed as a **variable**.
+- Scope: a **new patch** under `patches/` (excluded), non-`<app>` files, and anything carrying
+  `# pg-ok`.
+
 ---
 
 ## Summary checklist
