@@ -275,6 +275,22 @@ if (frappe.db.get_column_index("tabItem", column, unique=False)
 
 ---
 
+## 12. `set_value(<Check field>, True/False)` — bool vs integer column
+
+Frappe Check fields are `smallint`/`bigint`. `frappe.db.set_value(dt, dn, check_field, True)`
+emits `SET check_field=true` (a boolean literal); Postgres rejects assigning a boolean to an
+integer column (`DatatypeMismatch`). MariaDB coerces `true→1`. **Fix:** pass `1`/`0`. (ORM
+`doc.field = True; doc.save()` is fine — docfield typing casts it.) Detail in `06`.
+
+## 13. Caught insert error → aborted transaction (`InFailedSqlTransaction`)
+
+A separate *category*, not a single bad statement: on Postgres a failed insert/update aborts
+the **whole transaction**, so catch-and-continue code dies on the next statement. Frappe no
+longer auto-savepoints inserts (frappe#40075). Full treatment, the safe/unsafe matrix, and
+the savepoint fix are in **`references/06-transaction-and-runtime.md`**.
+
+---
+
 ## One-shot detection sweep
 
 Run from the app root **(including `test_*.py`)** before any Postgres cutover:

@@ -42,18 +42,23 @@ closed the gap.
 
 ## Why MariaDB-first apps break on Postgres (the mental model)
 
-MariaDB is permissive; PostgreSQL is strict and standards-bound. Three failure classes:
+MariaDB is permissive; PostgreSQL is strict and standards-bound. Four failure classes:
 
 1. **Hard breaks** — the query *errors* on Postgres but runs on MariaDB (MySQL-only
    functions, loose `GROUP BY`, `HAVING` on a SELECT alias, single-quoted aliases,
-   `UPDATE…JOIN`, capital-cased identifiers, …). CI on MariaDB is green; Postgres
-   raises an exception. → `references/02-hard-breaks.md`
+   `UPDATE…JOIN`, capital-cased identifiers, `set_value(<Check>, True)`, …). CI on
+   MariaDB is green; Postgres raises an exception. → `references/02-hard-breaks.md`
 2. **Silent divergences** — the query *succeeds on both* engines but returns
-   **different rows/values** (case-sensitivity, empty-string vs NULL, NULL ordering,
-   non-unique `ORDER BY … LIMIT 1`, arbitrary `GROUP BY` picks). The most dangerous
-   class: nothing fails, MariaDB CI stays green, the bug only shows on a Postgres
-   site. → `references/03-silent-divergences.md`
-3. **False positives** — constructs that *look* MySQL-specific but the framework
+   **different rows/values** (case-sensitivity incl. *name* lookups, empty-string vs
+   NULL, NULL ordering, non-unique `ORDER BY … LIMIT 1`, arbitrary `GROUP BY` picks,
+   date→epoch timezone skew). The most dangerous class: nothing fails, MariaDB CI
+   stays green, the bug only shows on a Postgres site. → `references/03-silent-divergences.md`
+3. **Transaction-abort semantics** — Postgres aborts the *entire transaction* on any
+   failed statement, so **catch-and-continue** code after an insert/update failure dies
+   on the next statement with `InFailedSqlTransaction`. MariaDB doesn't. Now relevant
+   because frappe dropped its blanket per-insert savepoint (frappe#40075) — callers must
+   savepoint themselves. → `references/06-transaction-and-runtime.md`
+4. **False positives** — constructs that *look* MySQL-specific but the framework
    transparently rewrites (`ifnull→coalesce`, backticks, `locate→strpos`,
    `REGEXP→~*`, `.like()→ILIKE`, dict-aggregate `fields`, `has_index`). "Fixing"
    these wastes effort and can *introduce* divergence. **Learn these first so you
@@ -147,6 +152,17 @@ earlier hangs un-labelled PRs — see the branch-protection mechanics in
 - **Raw `ifnull` / backticks / `locate` / `REGEXP` inside `frappe.db.sql()`** — auto
   rewritten. **Not** breaks. (False positives — see 01.) Everything *else* in a raw
   string is on you.
+- **`except DuplicateEntryError` / `UniqueValidationError` that keeps going** — on
+  Postgres the failed insert already aborted the txn. Safe only if it re-`throw`s (no DB
+  call before the throw) or the insert used `ignore_if_duplicate=True` / `autoname="hash"`
+  (→ `ON CONFLICT DO NOTHING`, no error). Otherwise wrap the insert in
+  `frappe.db.savepoint(...)` + `rollback(save_point=...)`. See 06.
+- **`set_value(<Check field>, True/False)`** — Check columns are integers; pass `1`/`0`,
+  not Python bools (PG `DatatypeMismatch`). See 06.
+- **Lower-casing a value used as a doc *name*** in `get_value`/`get_doc`/`exists` — names
+  are case-sensitive on PG; keep original case for the lookup. See 06 §3.
+- **A wall of same-shard failures** — likely one aborted-txn cascade, not many bugs.
+  Reproduce the suspect test in isolation before "fixing" each. See 06 §6.
 - **When unsure whether MariaDB changes** — write the both-engine test first. If
   MariaDB's asserted value moves, your fix is wrong for this codebase.
 
@@ -161,6 +177,7 @@ earlier hangs un-labelled PRs — see the branch-protection mechanics in
 | Chasing a query that returns **different results** on the two engines | `references/03-silent-divergences.md` |
 | Writing the actual fix (portable `qb`/ORM recipes) | `references/04-portable-cookbook.md` |
 | Setting up PG/MariaDB sites, CI, `install.sh`, branch protection | `references/05-ci-harness.md` |
+| `InFailedSqlTransaction` / savepoints / `set_value(bool)` / name-case / TZ epochs / reading parallel CI logs | `references/06-transaction-and-runtime.md` |
 
 ---
 

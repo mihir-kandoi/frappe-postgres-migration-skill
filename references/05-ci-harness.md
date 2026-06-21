@@ -208,13 +208,34 @@ matrix/name so it never collides with MariaDB's context.
 
 ---
 
+## Two CI gotchas worth pre-empting
+
+- **Prerequisite apps must be in the PG site's `install_apps`, not just fetched.**
+  `bench get-app <dep>` puts the app in the bench; the *site* installs only what its
+  `site_config` `install_apps` lists. If the MariaDB site_config lists `["payments", "app"]`
+  but the Postgres one lists only `["app"]`, the prerequisite's tables are absent on PG
+  (`relation "tabPayment Gateway" does not exist`) and a swathe of tests error. Keep both
+  engines' `install_apps` in sync.
+- **The frappe version is part of your contract.** A frappe change can *withdraw* a safety
+  net your app relied on (e.g. frappe#40075 removed the blanket per-insert savepoint, so
+  catch-and-continue inserts now need explicit savepoints — see `06`). Build/test against the
+  exact frappe your users run. A suite green against a patched local frappe lies.
+
+For the rest of the "run-it-for-real" lessons — Redis-must-be-up, cascade-failure triage,
+reading `run-parallel-tests` CI logs, and comprehensive staging↔develop reconciliation — see
+**`references/06-transaction-and-runtime.md` §6**.
+
+---
+
 ## Summary checklist
 
 - [ ] Two local test sites: one `--db-type postgres`, one `--db-type mariadb`, both `allow_tests`.
 - [ ] Full suite green on MariaDB *before* you start (baseline / no-regression contract).
 - [ ] PG CI workflow added: mirrors MariaDB, `DB: postgres`, distinct name, label-gated, **non-required**.
 - [ ] `install.sh` turns `synchronous_commit`/`fsync`/`full_page_writes` off for the disposable PG DB.
-- [ ] CI (and local verification) build against clean upstream `frappe develop`.
+- [ ] **Prerequisite apps present in the PG site's `install_apps`** (in sync with MariaDB).
+- [ ] CI (and local verification) build against clean upstream `frappe develop` (version is part of the contract).
 - [ ] Every fix: reproduced-red on PG → fixed → green on PG → still-green on MariaDB.
 - [ ] Test-helper SQL swept, not just production code.
+- [ ] Catch-and-continue insert paths savepoint-guarded (see `06`).
 - [ ] PG context promoted to required only *after* the full suite is reliably green — last step.

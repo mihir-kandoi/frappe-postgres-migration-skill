@@ -16,7 +16,8 @@ frappe-postgres-migration/
     ├── 02-hard-breaks.md             # queries that ERROR on Postgres + portable fixes
     ├── 03-silent-divergences.md      # queries that return DIFFERENT results + parity fixes
     ├── 04-portable-cookbook.md       # copy-pasteable qb/ORM recipes
-    └── 05-ci-harness.md              # dual-engine sites, CI workflow, install.sh, branch protection
+    ├── 05-ci-harness.md              # dual-engine sites, CI workflow, install.sh, branch protection
+    └── 06-transaction-and-runtime.md # txn-abort/savepoints, set_value(bool), name-case, TZ epochs, run-it-for-real lessons
 ```
 
 ## Install (the person receiving this)

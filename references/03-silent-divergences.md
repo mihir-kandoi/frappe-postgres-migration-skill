@@ -203,6 +203,24 @@ will not catch these; run the touched path on a Postgres site.)
 
 ---
 
+## 6. Case sensitivity in DB *name* lookups (sharper than §1)
+
+A subtle variant of §1: lower-casing a value and then using it as a **document name** in
+`get_value("Doctype", name, …)` / `get_doc` / `exists`. The `name` column is case-sensitive
+on Postgres, so a lowercased name matches no row → `None` → wrong result (MariaDB's
+case-insensitive name match hides it). **Keep original case for anything used as a
+name/identifier in a lookup**; only lower-case the operands of explicit case-insensitive
+comparisons. Detail + real example in `06` §3.
+
+## 7. `UnixTimestamp(date)` / date→epoch is timezone-dependent
+
+On Postgres a date's epoch is its midnight in the **DB session timezone**, which can be a day
+ahead of the wall clock when the app TZ is ahead of UTC (MariaDB differs subtly too). A test
+with a strict `epoch <= now` bound on date-derived values is flaky on PG. Allow tolerance
+(e.g. `<= now + 86400`); MariaDB stays `<= now` so its result is unchanged. Detail in `06` §4.
+
+---
+
 ## Quick reference
 
 | Divergence | Detect | MariaDB-preserving fix | Leave-it case |

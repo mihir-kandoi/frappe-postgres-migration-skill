@@ -178,6 +178,28 @@ row = frappe.db.get_value("Sales Invoice", {"name": invoice_name}, ["customer", 
 `exists()` never raises on a missing table/column. `count()` defaults `distinct=True` (pass
 `distinct=False` for a plain row count). `delete()` does **not** fire DocType hooks.
 
+### 12. Savepoint a catch-and-continue insert (Postgres transaction safety)
+
+On Postgres a failed insert aborts the whole transaction, so code that catches the failure
+and keeps going must roll back to a savepoint first (frappe no longer auto-savepoints —
+frappe#40075).
+
+```python
+# Production swallow-and-continue: contextmanager (swallows the caught exc)
+from frappe.database.database import savepoint
+for row in rows:
+    with savepoint(catch=frappe.DuplicateEntryError):
+        frappe.get_doc(row).insert()
+
+# Manual form — required when you must ALSO observe the exception (e.g. a test's assertRaises)
+frappe.db.savepoint("sp")
+with self.assertRaises(frappe.UniqueValidationError):
+    dup.insert()
+frappe.db.rollback(save_point="sp")   # preserve transaction on postgres
+```
+
+No-op on MariaDB. Full safe/unsafe matrix in `references/06-transaction-and-runtime.md`.
+
 ---
 
 ## Quick "does this break on Postgres?" checklist
