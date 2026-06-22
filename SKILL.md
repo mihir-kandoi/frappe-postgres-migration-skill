@@ -168,6 +168,13 @@ earlier hangs un-labelled PRs — see the branch-protection mechanics in
 - **Raw `ifnull` / backticks / `locate` / `REGEXP` inside `frappe.db.sql()`** — auto
   rewritten. **Not** breaks. (False positives — see 01.) Everything *else* in a raw
   string is on you.
+- **Double-escape when converting raw SQL → qb.** Raw SQL often pre-escapes values
+  (`frappe.db.escape(x)`, or a helper that returns `"'%s'" % escape(...)`) because string
+  interpolation needs it. `frappe.qb` (`.isin()`, `==`) and `frappe.get_all` filters escape
+  **automatically**, so if you feed them an already-escaped value you get
+  `col IN ('''x''')` — which matches **nothing**, silently, on *both* engines (a real
+  functional break — this is the POS item-group bug). When you port a raw query, **strip the
+  pre-escaping** and pass raw values; audit the helper that produced the list.
 - **`except DuplicateEntryError` / `UniqueValidationError` that keeps going** — on
   Postgres the failed insert already aborted the txn. Safe only if it re-`throw`s (no DB
   call before the throw) or the insert used `ignore_if_duplicate=True` / `autoname="hash"`
@@ -208,4 +215,18 @@ earlier hangs un-labelled PRs — see the branch-protection mechanics in
       non-1:1 query change against the two principles, **verifying each is still live at
       HEAD** (a later commit may have already corrected it). This net view catches
       regressions per-PR review missed and avoids the per-commit audit's over-reporting.
+      Pair it with a **class-exhaustive** pass (one reviewer per divergence class greps the
+      *whole* diff and judges every hit) — a per-commit/batched pass sample-misses; the
+      class pass is what converges. Re-run round after round until a round returns **zero**
+      true regressions/parity gaps; once you've fixed the obvious breaks, scope the later
+      rounds to *true wrong-output + parity gaps only* (deliberate, engine-identical
+      correctness changes are not regressions — don't keep re-flagging them).
+- [ ] **Codebase-wide scan for the UNTOUCHED queries.** The net-diff audit only sees queries
+      the effort *changed*. A loose `GROUP BY`, a `distinct`+`order_by`, or an `ORDER BY …
+      LIMIT 1` with no tie-break in a query you never touched will slip past it. Enumerate
+      every `.groupby` / `get_all(distinct=…)` / `LIMIT 1` site in the whole app, subtract the
+      effort-touched set, and check the remainder (the green PG suite already covers the
+      *reachable* ones; this catches the unreached). The `ORDER BY … LIMIT 1` tie-break in
+      particular must be applied **consistently across sibling functions** — a missed one
+      picks a different row on each engine.
 - [ ] Postgres CI promoted to a required check — as the final step.
