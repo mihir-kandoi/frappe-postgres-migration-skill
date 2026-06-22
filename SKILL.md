@@ -143,6 +143,22 @@ earlier hangs un-labelled PRs — see the branch-protection mechanics in
   *genuinely* multi-valued, MariaDB's old pick was undefined → widen the GROUP BY,
   pick a deterministic representative, or drop the column — and treat it as a
   behaviour change (rare, needs a note).
+  - **Never add a non-FD column to `GROUP BY` just to satisfy Postgres** — that splits
+    one group row into N and **changes the MariaDB row count** (a regression). Prefer
+    `Max()`/`Min()`-wrapping the offending column: row count preserved, value
+    arbitrary→deterministic. (Adding the child/row PK is the classic trap — it makes
+    every row its own group.)
+  - **Tell FD by the table the column is SELECTed from, not by its name.** A column from
+    a master **joined on the group key** (`t3.x` where `t1.key = t3.name`) is FD → safe
+    in `GROUP BY`. A descriptive column on the **transaction** table (`t1.supplier_name`,
+    `t1.territory`, `t1.item_name` — editable/fetched fields) is **not** FD even though it
+    "looks like" master data → `Max()`-wrap it.
+- **`get_all(distinct=True, order_by=…)` / `SELECT DISTINCT … ORDER BY`** — frappe's
+  `db_query` **silently drops `ORDER BY` for distinct queries on Postgres**, so the result
+  comes back unordered there (a parity gap). Sort in Python instead. And when you replace a
+  SQL `ORDER BY <text-col>` with Python `sorted()`, pass **`key=str.casefold`** — bare
+  `sorted()` is case-sensitive (ASCII codepoint) but MariaDB's default collation orders
+  case-**insensitively**, so without it you reorder MariaDB's output. See 03.
 - **`ORDER BY … LIMIT 1` / `[0]` tie** — add a unique tiebreaker (`creation`/`name`)
   **only if it doesn't change MariaDB's current pick.** If the tied rows are equal on
   every column you read (the choice is invisible), or a tiebreaker would flip MariaDB,
@@ -188,4 +204,8 @@ earlier hangs un-labelled PRs — see the branch-protection mechanics in
 - [ ] Every fix shipped with a both-engine test asserting concrete values.
 - [ ] Test-helper / fixture SQL swept, not just production code.
 - [ ] Genuine MariaDB behaviour changes (rare) are documented with a release note.
+- [ ] **Net-diff audit** — diff a pre-effort baseline → final HEAD and re-check every
+      non-1:1 query change against the two principles, **verifying each is still live at
+      HEAD** (a later commit may have already corrected it). This net view catches
+      regressions per-PR review missed and avoids the per-commit audit's over-reporting.
 - [ ] Postgres CI promoted to a required check — as the final step.

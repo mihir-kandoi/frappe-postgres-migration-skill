@@ -31,6 +31,15 @@ another table still needs to be grouped/aggregated).
   `GROUP BY` or wrapping in `Max()` returns the same single value MariaDB was already picking.
   If genuinely multi-valued, MariaDB's old pick was undefined → pick a deterministic value
   (`Max`) and add a release note. (See the `Max()` decision rule in `03`, §5.)
+- **⚠ Row-count trap — `Max()`-wrap, do NOT add a non-FD column to `GROUP BY`.** Adding a
+  multi-valued column (the classic case: the **child/row PK**, or an editable per-row field) to
+  `GROUP BY` makes each row its own group → **one group row becomes N → the MariaDB row count
+  changes = a regression.** Only add a column to `GROUP BY` if it is FD on the key; otherwise
+  `Max()`/`Min()`-wrap it (row count preserved, value arbitrary→deterministic).
+- **Judge FD by the source table, not the column name.** `t3.x` from a **master joined on the
+  group key** (`t1.key = t3.name`) is FD → safe in `GROUP BY`. A descriptive field on the
+  **transaction** table (`t1.supplier_name`, `t1.territory` — fetched/editable, can differ across
+  historical rows for the same key) is **not** FD even though it looks master-derived → `Max()`-wrap.
 
 ```python
 # BEFORE (errors on PG: bom/bin columns not in GROUP BY)

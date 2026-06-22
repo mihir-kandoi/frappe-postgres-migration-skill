@@ -219,6 +219,53 @@ ahead of the wall clock when the app TZ is ahead of UTC (MariaDB differs subtly 
 with a strict `epoch <= now` bound on date-derived values is flaky on PG. Allow tolerance
 (e.g. `<= now + 86400`); MariaDB stays `<= now` so its result is unchanged. Detail in `06` §4.
 
+## 8. `DISTINCT` + `ORDER BY` column ordering (frappe drops ORDER BY on PG; Python `sorted()` is case-sensitive)
+
+Two compounding traps when a query produces an **ordered list of distinct text values** (e.g. the
+dynamic account columns of a financial report):
+
+1. **frappe silently drops `ORDER BY` for `distinct` queries on Postgres.** `db_query` (frappe)
+   blanks `order_by` when `distinct=True and db_type=="postgres"` (Postgres requires DISTINCT
+   ORDER-BY exprs to be in the SELECT list, and it sidesteps that by dropping the order). So
+   `frappe.get_all(doctype, pluck="x", distinct=True, order_by="x")` is **ordered on MariaDB but
+   arbitrary on Postgres** → a real cross-engine divergence whenever the list order is user-visible.
+2. **Python `sorted()` is case-sensitive; MariaDB's default collation is not.** Replacing the SQL
+   `ORDER BY <text>` with `sorted(list)` orders by raw Unicode codepoint (`'Z'`=0x5A before
+   `'a'`=0x61), but MariaDB's `utf8mb4_*_ci` collation orders case-**insensitively**. So bare
+   `sorted()` changes MariaDB's historical order.
+
+**Fix — sort in Python with a casefold key, dropping the (ignored) `order_by`:**
+```python
+# Before — unordered on PG (order_by dropped for distinct):
+accounts = frappe.get_all("Sales Invoice Item", filters={...}, pluck="income_account",
+                          distinct=True, order_by="income_account")
+# After — deterministic, case-insensitive, identical on MariaDB and Postgres:
+accounts = sorted(
+    frappe.get_all("Sales Invoice Item", filters={...}, pluck="income_account", distinct=True),
+    key=str.casefold,
+)
+```
+`key=str.casefold` reproduces MariaDB's collation order on both engines. Test with two
+case-colliding values (e.g. `"aaa …"` and `"ZZZ …"`) and assert the casefold order; bare
+`sorted()` fails it (`['ZZZ…','aaa…']`), the fix passes on both engines.
+
+## 9. Number-suffix extraction: mirror MariaDB's `SUBSTRING_INDEX … AS UNSIGNED` exactly
+
+A common name-deduplication idiom is `CAST(SUBSTRING_INDEX(name, ' ', -1) AS UNSIGNED)` — the
+**leading digits of the last whitespace token** (`"X - 3a" → 3`, `"X - 1.5" → 1`, `"X - Foo" → 0`).
+A Postgres rewrite that grabs the **pure trailing digits** (`regexp_replace(name,'^.*?(\d*)$','\1')`)
+diverges: `"X - 3a"` → `''`→NULL→0 on PG but 3 on MariaDB, so the next generated number differs.
+**Mirror MariaDB:** isolate the last token, then take its leading digits:
+```python
+last_token   = regexp_replace(name, r"^.*\s", "")          # drop up to the last whitespace
+leading_nums = regexp_replace(last_token, r"^(\d*).*$", r"\1")
+extracted    = nullif(leading_nums, "")                     # '' → NULL, skipped by MAX(), COALESCE→0
+casted       = Cast(extracted, "INTEGER")
+```
+General rule: when an engine branch reimplements a string/number function, **diff the two against
+literal rows on both live engines** (`SELECT <expr> FROM (VALUES …)`) before trusting it — a regex
+that looks equivalent often isn't on the edge cases.
+
 ---
 
 ## Quick reference
@@ -230,6 +277,8 @@ with a strict `epoch <= now` bound on date-derived values is flaky on PG. Allow 
 | NULL ordering | `.orderby` on nullable key | `IfNull(col, sentinel)`; `isnotnull()` before `LIMIT 1` | n/a |
 | `ORDER BY … LIMIT 1` non-unique | `.limit(1)`/`[0]` on non-unique key | add `creation`/`name`/PK tiebreaker (+ to SELECT under DISTINCT) | tied rows equal on read cols, or tiebreaker flips MariaDB |
 | `Max()` arbitrary pick under GROUP BY | selected col not in GROUP BY nor aggregate | `Max()` if functionally-dependent; else widen GROUP BY / representative / drop | functionally-dependent (one value/group) → accept silently |
+| `distinct` list order | `get_all(distinct=True, order_by=…)` / `SELECT DISTINCT … ORDER BY` | `sorted(get_all(distinct=True), key=str.casefold)` (PG drops the ORDER BY; bare `sorted` is case-sensitive) | order never user-visible |
+| number-suffix extract | PG regex branch reimplementing `SUBSTRING_INDEX(name,' ',-1) AS UNSIGNED` | mirror exactly: last token → leading digits → `NULLIF` → `Cast` | n/a (diff both engines on literal rows first) |
 
 Every fix lands with a both-engine test asserting the concrete value — that test is the proof
 that MariaDB stayed put and Postgres caught up.
