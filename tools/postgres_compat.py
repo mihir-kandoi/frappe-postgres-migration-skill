@@ -64,7 +64,7 @@ SQL_PATTERNS: list[tuple[re.Pattern, str]] = [
 	 "SQL IF() is MySQL-only -> use CASE WHEN ... THEN ... ELSE ... END (frappe.qb.Case())"),
 	(re.compile(r"\brlike\b", re.I),
 	 "RLIKE is MySQL-only -> frappe rewrites REGEXP->~* on Postgres but NOT RLIKE; use REGEXP / .regexp() / ~"),
-	(re.compile(r"\bcast\s*\([^)]*\bas\s+char\b", re.I),
+	(re.compile(r"\bcast\s*\(.+?\bas\s+char\b", re.I | re.S),  # .+? spans nested parens, e.g. CAST(ABS(x) AS CHAR)
 	 "CAST(... AS CHAR) is character(1) on Postgres and truncates -> CAST AS VARCHAR (frappe Cast_(x, 'varchar'))"),
 ]
 
