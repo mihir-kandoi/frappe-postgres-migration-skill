@@ -353,6 +353,25 @@ shape is a presence test `IfNull(date_col, 0) != 0 / == 0` -> replace with
 **same-type** default (`Coalesce(date_col, '1900-01-01')`, `Coalesce(text_col, '')`). Numeric
 `IfNull(int_or_currency_col, 0)` is fine -- only a *type mismatch* (date/text vs int) breaks.
 
+## 19. Division by a possibly-zero divisor
+
+`Sum(a) / Sum(b)`, `x / col`, `total / count` etc. where the divisor can be `0`/empty for some
+rows. **MariaDB returns `NULL` for division by zero; Postgres raises `division by zero` and aborts
+the whole query.** Wrap the divisor in `NullIf(divisor, 0)` -- that yields `NULL` on both engines,
+exactly matching MariaDB's value (and any later `flt(None)`/`Coalesce` keeps treating it as 0).
+
+```python
+from frappe.query_builder.functions import NullIf, Sum
+# before:  .select(Sum(t.stock_value_difference) / Sum(t.actual_qty))
+# after:
+.select(Sum(t.stock_value_difference) / NullIf(Sum(t.actual_qty), 0))
+```
+
+Only a *literal* `/ 0` is a constant the parser rejects up front; the real trap is a divisor that
+is an **aggregate or a column the data can drive to zero**. This is data-dependent, so a static
+checker can't prove it -- it needs a reviewer or a row that exercises the zero divisor. Not every
+division is a bug: skip divisors that are non-zero constants or already `NullIf`/`Coalesce`-guarded.
+
 ## One-shot detection sweep
 
 Run from the app root **(including `test_*.py`)** before any Postgres cutover:
@@ -370,6 +389,8 @@ grep -rnE "(get_value|get_all|get_list|db_set|order_by)\b.*\"[A-Z]" --include="*
 grep -rniE "update .*join|frappe\.db\.sql\(\s*f\"|show index|show tables|Column_name" --include="*.py" .
 # .rlike()/RLIKE (not translated) and Cast-to-char (character(1) truncation) and .like() on idx/int cols
 grep -rniE "\.rlike\(|\brlike\b|cast\([^)]*as char\b|Cast\([^,]+, ?[\"']char[\"']|\.(idx|docstatus)\.i?like\(" --include="*.py" .
+# division by an aggregate/column (check each: is the divisor NullIf-guarded or provably non-zero?)
+grep -rnE "/ ?(Sum|Count|Avg|Max|Min)\(|\) ?/ ?[a-z_]+\." --include="*.py" .
 ```
 
 Every fix is verifiable the way the source migration was: ship a test that runs the touched
