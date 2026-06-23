@@ -58,6 +58,11 @@ frappe.db.sql("SELECT locate('-', name) FROM `tabItem`")
 
 Backtick identifiers, `locate(...)`, and ` REGEXP ` in raw SQL are **false positives**.
 
+> ⚠️ **`RLIKE` is NOT translated.** `REGEXP_PATTERN` matches only the word `REGEXP`, so
+> `RLIKE` / pypika's `.rlike()` passes through unchanged and Postgres has no `RLIKE` operator
+> → **hard break**. Use `REGEXP` / `.regexp()` (translated to `~*`) or `.like()`. This is the
+> one regex form that is a real break, not a false positive.
+
 ---
 
 ## 3. `.like()` / `["like", ...]` filters render as `ILIKE` on Postgres
@@ -84,6 +89,12 @@ A finding that says "`like` is case-sensitive on Postgres, must fix" is almost a
 **false positive** for these ORM/qb/`.like()` forms — the framework already emits `ILIKE`.
 (Genuinely *raw* `LIKE` in `frappe.db.sql()` that you *intend* to be case-sensitive is the
 only thing to scrutinise.)
+
+> ⚠️ **Exception — `.like()` on a NON-text column is a real break.** Because `.like()` →
+> `ILIKE`, a numeric/date column hits `bigint ILIKE text` (`operator does not exist`). Cast to
+> text first — **`Cast_(col, "varchar")`**, never `Cast(col, "char")` (Postgres `CHAR` is
+> `character(1)` and truncates multi-digit values). MariaDB coerces the int implicitly, so the
+> cast is a no-op there.
 
 ---
 

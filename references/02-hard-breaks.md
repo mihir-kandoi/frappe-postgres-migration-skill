@@ -298,6 +298,45 @@ the **whole transaction**, so catch-and-continue code dies on the next statement
 longer auto-savepoints inserts (frappe#40075). Full treatment, the safe/unsafe matrix, and
 the savepoint fix are in **`references/06-transaction-and-runtime.md`**.
 
+## 14. `.rlike()` / `RLIKE` — not auto-translated (unlike `REGEXP`)
+
+Frappe rewrites ` REGEXP ` → ` ~* ` on Postgres but **not** `RLIKE` (the rewrite pattern
+matches only the word `REGEXP`). pypika's `.rlike()` emits `RLIKE`, which Postgres has no
+operator for → hard break. **Fix:** `.regexp()` (translated to `~*`) or `.like()`/`.ilike()`
+for a simple prefix.
+
+```python
+# BEFORE: sp.partner_website.rlike("^http://")     ← RLIKE not translated, errors on PG
+# AFTER:  sp.partner_website.like("http://%")       ← or .regexp("^http://")
+```
+
+## 15. `.like()` / `CAST` on a non-text column (`bigint ILIKE`, `CHAR` = `character(1)`)
+
+Because `.like()` → `ILIKE`, applying it to a numeric/date column hits `bigint ILIKE text`
+(`operator does not exist`). Cast to text first — but **`Cast_(col, "varchar")`, never
+`Cast(col, "char")`**: on Postgres bare `CHAR` is `character(1)`, so `CAST(12 AS CHAR)` → `'1'`
+(silently truncates multi-digit values). MariaDB coerces the int implicitly, so the cast is a
+no-op there.
+
+```python
+# BEFORE: table.idx.like("12%")               ← bigint ILIKE on PG; also Cast(idx,"char") truncates to "1"
+# AFTER:  Cast_(table.idx, "varchar").like("12%")
+```
+
+## 16. Aggregate with NO `GROUP BY` at all
+
+A `Sum()`/`Count()` selected next to **bare** columns and no `.groupby()` anywhere: MariaDB
+silently collapses every row into one arbitrary-valued row (usually a *wrong-output* bug there
+too — see `03`), Postgres errors (`must appear in the GROUP BY clause`). Add the intended
+`.groupby(...)` (this is the same trap as §1 with the `GROUP BY` simply omitted).
+
+## 17. `qb.update(dt).set(<Check field>, True/False)` / `get_all(fields=["CapitalCase"])`
+
+Two more shapes of §8 and §12: a Python bool into a Check column via the **query builder**
+`qb.update(dt).set(check_field, False)` (not just `set_value`/`db_set`) → pass `1`/`0`; and a
+capital-cased fieldname in `get_all(dt, fields=["Account"])` (not just `get_value`) → Postgres
+quotes it case-sensitively (`column "Account" does not exist`), use the stored lower-case name.
+
 ---
 
 ## One-shot detection sweep
@@ -315,6 +354,8 @@ grep -rnE "\bas\s+'[^']+'|\) ?\| ?\(|\bor [0-9]" --include="*.py" .
 grep -rnE "(get_value|get_all|get_list|db_set|order_by)\b.*\"[A-Z]" --include="*.py" .
 # UPDATE...JOIN, f-string SQL, MySQL DDL introspection
 grep -rniE "update .*join|frappe\.db\.sql\(\s*f\"|show index|show tables|Column_name" --include="*.py" .
+# .rlike()/RLIKE (not translated) and Cast-to-char (character(1) truncation) and .like() on idx/int cols
+grep -rniE "\.rlike\(|\brlike\b|cast\([^)]*as char\b|Cast\([^,]+, ?[\"']char[\"']|\.(idx|docstatus)\.i?like\(" --include="*.py" .
 ```
 
 Every fix is verifiable the way the source migration was: ship a test that runs the touched
