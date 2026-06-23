@@ -343,6 +343,16 @@ quotes it case-sensitively (`column "Account" does not exist`), use the stored l
 
 ---
 
+## 18. `IfNull`/`Coalesce` of a typed column with a different-typed literal
+
+`IfNull(asset.disposal_date, 0)` renders `COALESCE("disposal_date", 0)` -- coalescing a DATE
+with an integer. Postgres requires `COALESCE` args to share a type and raises `DatatypeMismatch:
+COALESCE types date and integer cannot be matched`; MariaDB's `IFNULL` is permissive. The common
+shape is a presence test `IfNull(date_col, 0) != 0 / == 0` -> replace with
+`date_col.isnotnull()` / `date_col.isnull()` (identical, valid on both). Otherwise coalesce to a
+**same-type** default (`Coalesce(date_col, '1900-01-01')`, `Coalesce(text_col, '')`). Numeric
+`IfNull(int_or_currency_col, 0)` is fine -- only a *type mismatch* (date/text vs int) breaks.
+
 ## One-shot detection sweep
 
 Run from the app root **(including `test_*.py`)** before any Postgres cutover:
