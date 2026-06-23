@@ -72,6 +72,11 @@ text columns; MariaDB stores it as `''`. They then behave differently in:
 - **String concatenation:** `Concat_ws(sep, a, b, c)` *skips NULL arguments* but *includes
   empty strings*. A blank middle component → `'John  Doe'` (double sep) on MariaDB (`''`
   kept) but `'John Doe'` on Postgres (`NULL` skipped). The engines build different strings.
+- **Plain `Concat(a, b)` over a nullable arg diverges the *opposite* way:** MariaDB `CONCAT`
+  returns `NULL` if **any** argument is NULL, but Postgres `CONCAT()` **drops NULLs** and keeps
+  the rest. So `Concat("MFG-", batch.manufacturing_date)` with no date → `NULL` on MariaDB vs a
+  bare `"MFG-"` on Postgres. Guard with `Case().when(col.isnotnull(), Concat("MFG-", col))` (NULL
+  on both, matching MariaDB) — or `Coalesce`/`NullIf` to deliberately pick the other side.
 - **`= ''` filters:** on Postgres a stored-`NULL` column does not satisfy `col = ''`; on
   MariaDB it does. (The framework filter `["fieldname", "is", "not set"]` renders
   `ifnull(col,'')=''` on both engines — that abstraction is parity-safe; raw `col = ''` is not.)

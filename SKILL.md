@@ -62,7 +62,9 @@ MariaDB is permissive; PostgreSQL is strict and standards-bound. Four failure cl
    transparently rewrites (`ifnull→coalesce`, backticks, `locate→strpos`,
    `REGEXP→~*`, `.like()→ILIKE`, dict-aggregate `fields`, `has_index`). "Fixing"
    these wastes effort and can *introduce* divergence. **Learn these first so you
-   don't chase ghosts.** → `references/01-false-positives.md`
+   don't chase ghosts.** Two sharp edges: `RLIKE`/`.rlike()` is **not** rewritten
+   (only `REGEXP` is → real break), and `.like()` on a **non-text** column **is** a
+   break (`bigint ILIKE`). → `references/01-false-positives.md`
 
 ---
 
@@ -221,12 +223,17 @@ earlier hangs un-labelled PRs — see the branch-protection mechanics in
       true regressions/parity gaps; once you've fixed the obvious breaks, scope the later
       rounds to *true wrong-output + parity gaps only* (deliberate, engine-identical
       correctness changes are not regressions — don't keep re-flagging them).
-- [ ] **Codebase-wide scan for the UNTOUCHED queries.** The net-diff audit only sees queries
-      the effort *changed*. A loose `GROUP BY`, a `distinct`+`order_by`, or an `ORDER BY …
-      LIMIT 1` with no tie-break in a query you never touched will slip past it. Enumerate
-      every `.groupby` / `get_all(distinct=…)` / `LIMIT 1` site in the whole app, subtract the
-      effort-touched set, and check the remainder (the green PG suite already covers the
-      *reachable* ones; this catches the unreached). The `ORDER BY … LIMIT 1` tie-break in
-      particular must be applied **consistently across sibling functions** — a missed one
-      picks a different row on each engine.
+- [ ] **Whole-repo scan — scope by QUERY, never by FILE.** The net-diff audit only sees queries
+      the effort *changed*; a loose `GROUP BY`, an aggregate with no `GROUP BY`, a `distinct`+
+      `order_by`, or an `ORDER BY … LIMIT 1` with no tie-break in a query you never touched slips
+      past it. **Do not "enumerate sites, subtract the effort-touched files, check the remainder"**
+      — that is exactly how a real bug hides: a *touched file* (you changed one function in it)
+      still holds *untouched risky queries* in its other functions, and bucketing by file marks
+      the whole file "covered". Enumerate every `.groupby` / aggregate-without-groupby /
+      `distinct`+`order_by` / `.like()`-on-int / `.rlike` / `int/int` / `LIMIT 1` *site* and judge
+      **each one** on its own merits regardless of whether its file was touched. (In the reference
+      effort a batch-handler GROUP BY in an already-touched `queries.py` was missed by five
+      file-scoped rounds and only caught by a per-query whole-repo pass.) Apply class fixes
+      **consistently across sibling functions** — e.g. the `/1440.0` lead-time fix or an
+      `ORDER BY … LIMIT 1` tie-break missed in one of two siblings still diverges.
 - [ ] Postgres CI promoted to a required check — as the final step.

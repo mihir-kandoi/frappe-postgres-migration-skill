@@ -152,8 +152,12 @@ select_fields += f",substr(remarks, 1, {remarks_length}) as remarks"
 an *error* but a silent wrong answer — scan for it alongside the breaks.
 
 - **Symptom:** percentages/ratios truncate to 0 for any minority group; no exception.
-- **Detect:** `grep -rnE "Count\(|count\(.*/|/.*\* ?100\b" --include="*.py" .`
-- **Fix:** force float before dividing — `* 100.0 / total` (multiply first) or `Cast(num, "DECIMAL") / den`.
+  Also a **constant divisor** on an Int column — `manufacturing_time_in_mins / 1440` floors a
+  lead-time to whole days on Postgres only (then `math.ceil` + `add_days` shift a date by a day).
+- **Detect:** `grep -rnE "Count\(|count\(.*/|/.*\* ?100\b|/ ?[0-9]+\b|[0-9]+ ?/ ?[a-z_]+\." --include="*.py" .`
+- **Fix:** force float before dividing — `* 100.0 / total` (multiply first), **float a literal**
+  (`col / 1440` → `col / 1440.0`, or `1440 / col` → `1440.0 / col`), or `Cast(num, "DECIMAL") / den`.
+  (SQL-level `/` only — Python `/` is already float.)
 - **Why MariaDB-identical:** MariaDB already divided in decimal; multiplying by `100.0`
   makes Postgres do the same, and `x * 100.0 / y == x / y * 100` in decimal.
 
